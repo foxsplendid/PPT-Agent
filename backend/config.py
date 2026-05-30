@@ -3,7 +3,13 @@
 from pathlib import Path
 from typing import Literal
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import (
+    BaseSettings,
+    DotEnvSettingsSource,
+    EnvSettingsSource,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -59,23 +65,28 @@ DESIGN_STYLES = {
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     # Server
     host: str = "0.0.0.0"
     port: int = 8000
 
     # LLM defaults
-    default_llm_provider: Literal["openai", "deepseek", "anthropic", "gemini"] = "openai"
+    default_llm_provider: Literal["openai", "deepseek", "anthropic", "gemini", "xiaomi", "openai_next"] = "openai"
     default_llm_model: str = "gpt-4o"
     openai_api_key: str | None = None
     deepseek_api_key: str | None = None
     anthropic_api_key: str | None = None
+    anthropic_base_url: str | None = None
     gemini_api_key: str | None = None
+    xiaomi_api_key: str | None = None
+    xiaomi_base_url: str | None = None
+    openai_next_api_key: str | None = None
+    openai_next_base_url: str | None = None
 
     # Paper parsing
     mineru_api_key: str | None = None
-    mineru_api_url: str | None = None
+    mineru_api_url: str | None = "https://mineru.net/api/v4"
 
     # Image generation
     image_backend: str | None = None
@@ -109,6 +120,13 @@ class Settings(BaseSettings):
     # parallelism still exists; this prevents two active parallel jobs from
     # multiplying into a provider/network storm.
     llm_max_concurrent_requests: int = 4
+    # Per-request timeout (seconds) for LLM SDK calls. The SDK default is
+    # 600s with 2 internal retries, so a hung upstream (common with API
+    # aggregators/proxies) silently blocks a slide for up to 30 min. We set
+    # an explicit bound so genuine hangs surface and retry within minutes,
+    # while leaving headroom for slow reasoning calls (strategy ~227s seen,
+    # may run longer for dense papers on slower models like Opus).
+    llm_request_timeout: float = 420.0
 
     # ── Job scheduling ───────────────────────────────────────────────────
     # Backlog cap for queued jobs; a 16th queued job returns 429.
@@ -137,6 +155,21 @@ class Settings(BaseSettings):
 
     # ── Template import v2 (gradual rollout) ─────────────────────────────
     template_import_v2: bool = False  # gradual rollout — when True, route through v2 pipeline
+
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: EnvSettingsSource,
+        dotenv_settings: DotEnvSettingsSource,
+        **kwargs: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        # .env file takes priority over system environment variables so that
+        # project-specific keys (e.g. ANTHROPIC_BASE_URL) override any
+        # conflicting values set by other tools (e.g. Claude Code).
+        return init_settings, dotenv_settings, env_settings
 
 
 settings = Settings()

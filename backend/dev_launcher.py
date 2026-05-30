@@ -15,6 +15,34 @@ ROOT = Path(__file__).resolve().parents[1]
 FRONTEND_DIR = ROOT / "frontend"
 
 
+def _load_dotenv_into_environ() -> None:
+    """Project-local .env -> os.environ so subprocesses (worker, codex
+    subprocess spawned by the agent runtime) inherit keys we configure
+    here.
+
+    .env values OVERWRITE any inherited env vars. The project is meant
+    to be self-contained — a stray ``ANTHROPIC_BASE_URL`` that a parent
+    shell got from an unrelated tool (e.g. Claude Code's own setup)
+    must not silently win over the project's intentional config.
+    """
+    env_file = ROOT / ".env"
+    if not env_file.exists():
+        return
+    for raw in env_file.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if not key:
+            continue
+        os.environ[key] = value
+
+
+_load_dotenv_into_environ()
+
+
 def _npm_cmd() -> str:
     return "npm.cmd" if sys.platform.startswith("win") else "npm"
 
@@ -167,8 +195,7 @@ def main() -> int:
                 "--host",
                 "127.0.0.1",
                 "--port",
-                "5173",
-                "--strictPort",
+                "5174",
                 "--open",
             ],
             FRONTEND_DIR,
