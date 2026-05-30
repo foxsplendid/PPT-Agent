@@ -219,12 +219,33 @@ async def run_pipeline(
 
         output_dir = project_dir / "sources"
         if request.source_type == "pdf":
-            parser = PDFParser()
+            # Prefer MinerU when an API key is configured; on failure fall
+            # back to the local PyMuPDF parser so a transient cloud issue
+            # doesn't break generation.
+            if (settings.mineru_api_key or "").strip():
+                import httpx as _httpx
+                from backend.parser import MinerUParser
+                from backend.parser.mineru_parser import MinerUError
+
+                parser = MinerUParser()
+                try:
+                    async with heavy_stage_slot():
+                        paper = await parser.parse(request.file_path, output_dir)
+                except (MinerUError, _httpx.HTTPError) as exc:
+                    logger.warning(
+                        "MinerU parse failed (%s); falling back to PyMuPDF.", exc
+                    )
+                    parser = PDFParser()
+                    async with heavy_stage_slot():
+                        paper = await parser.parse(request.file_path, output_dir)
+            else:
+                parser = PDFParser()
+                async with heavy_stage_slot():
+                    paper = await parser.parse(request.file_path, output_dir)
         else:
             parser = LaTeXParser()
-
-        async with heavy_stage_slot():
-            paper = await parser.parse(request.file_path, output_dir)
+            async with heavy_stage_slot():
+                paper = await parser.parse(request.file_path, output_dir)
         provider_memory = build_provider_memory(paper)
         await aoffload(
             save_provider_memory,
