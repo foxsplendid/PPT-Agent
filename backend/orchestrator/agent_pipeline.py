@@ -132,6 +132,22 @@ async def agent_runtime_status(runtime: str) -> dict[str, Any]:
             account = await codex.account(refresh_token=False)
             account_obj = getattr(account, "account", None)
             if account_obj is None:
+                # API-key auth (configured via model_providers.*.env_key
+                # in config.toml) doesn't produce an OAuth account record.
+                # Accept it when the configured API key env var is set in
+                # the worker process; if it's invalid the actual generation
+                # request will surface the error.
+                api_key_envs = ("OPENAI_API_KEY", "DEEPSEEK_API_KEY", "ANTHROPIC_API_KEY")
+                if any(os.environ.get(name) for name in api_key_envs):
+                    return {
+                        "runtime": runtime,
+                        "available": True,
+                        "sdk_available": True,
+                        "authenticated": True,
+                        **agent_runtime_defaults(runtime),
+                        "auth_method": "api_key",
+                        "message": "Codex SDK ready (API key auth via CODEX_HOME config).",
+                    }
                 return {
                     "runtime": runtime,
                     "available": False,
@@ -1039,41 +1055,47 @@ async def run_agent_pipeline(request: Any):
 
     async def _session_drainer() -> None:
         await session.start(prompt)
-        async for message in session:
-            if isinstance(message, AgentProgressEvent):
-                await queue.put(message)
-                continue
-            usage_event = _update_agent_usage_totals(session._usage_totals, message)
-            if usage_event is not None:
-                await queue.put(usage_event)
-            if runtime == "codex":
-                item_event = _codex_item_progress_event(message, str(getattr(message, "method", "") or ""))
-                if item_event is not None:
-                    await queue.put(item_event)
-            else:
-                for sdk_event in _agent_sdk_events_from_message(message):
-                    msg = str(sdk_event.get("message") or "").strip()
-                    if msg:
-                        await queue.put(
-                            AgentProgressEvent(
-                                "agent",
-                                "progress",
-                                msg,
-                                0.12,
-                                data={"runtime": "claude_code", "agent_event": sdk_event},
+        try:
+            async for message in session:
+                if isinstance(message, AgentProgressEvent):
+                    await queue.put(message)
+                    continue
+                usage_event = _update_agent_usage_totals(session._usage_totals, message)
+                if usage_event is not None:
+                    await queue.put(usage_event)
+                if runtime == "codex":
+                    item_event = _codex_item_progress_event(message, str(getattr(message, "method", "") or ""))
+                    if item_event is not None:
+                        await queue.put(item_event)
+                else:
+                    for sdk_event in _agent_sdk_events_from_message(message):
+                        msg = str(sdk_event.get("message") or "").strip()
+                        if msg:
+                            await queue.put(
+                                AgentProgressEvent(
+                                    "agent",
+                                    "progress",
+                                    msg,
+                                    0.12,
+                                    data={"runtime": "claude_code", "agent_event": sdk_event},
+                                )
                             )
-                        )
-                if message.__class__.__name__ == "ResultMessage" and bool(
-                    getattr(message, "is_error", False)
-                ):
-                    if _is_claude_turn_limit_result(message):
-                        continue
-                    result = str(getattr(message, "result", "") or "Agent failed.")
-                    raise RuntimeError(result)
-        # Drainer finished — persist session_id and switch to direct mode
-        # so feedback turns broadcast directly to WebSocket subscribers.
-        if session.session_id:
-            _save_agent_session(project_dir, session.session_id)
+                    if message.__class__.__name__ == "ResultMessage" and bool(
+                        getattr(message, "is_error", False)
+                    ):
+                        if _is_claude_turn_limit_result(message):
+                            continue
+                        result = str(getattr(message, "result", "") or "Agent failed.")
+                        raise RuntimeError(result)
+        finally:
+            # Persist session_id even when a turn fails mid-flight (e.g. a
+            # Cloudflare 524).  session_id is captured early from the SDK init
+            # message, so it is available on the error path too — without this
+            # save the workspace cannot be resumed after a transient failure.
+            if session.session_id:
+                _save_agent_session(project_dir, session.session_id)
+        # Normal completion — switch to direct mode so feedback turns
+        # broadcast directly to WebSocket subscribers.
         session.set_direct_mode()
 
     scanner_task = asyncio.create_task(_scanner(), name="agent-svg-scanner")
@@ -1234,39 +1256,43 @@ async def run_agent_feedback_pipeline(
 
     async def _session_drainer() -> None:
         await session.start(prompt)
-        async for message in session:
-            if isinstance(message, AgentProgressEvent):
-                await queue.put(message)
-                continue
-            usage_event = _update_agent_usage_totals(usage_totals, message)
-            if usage_event is not None:
-                await queue.put(usage_event)
-            if runtime == "codex":
-                item_event = _codex_item_progress_event(message, str(getattr(message, "method", "") or ""))
-                if item_event is not None:
-                    await queue.put(item_event)
-            else:
-                for sdk_event in _agent_sdk_events_from_message(message):
-                    msg = str(sdk_event.get("message") or "").strip()
-                    if msg:
-                        await queue.put(
-                            AgentProgressEvent(
-                                "agent",
-                                "progress",
-                                msg,
-                                0.12,
-                                data={"runtime": "claude_code", "agent_event": sdk_event},
+        try:
+            async for message in session:
+                if isinstance(message, AgentProgressEvent):
+                    await queue.put(message)
+                    continue
+                usage_event = _update_agent_usage_totals(usage_totals, message)
+                if usage_event is not None:
+                    await queue.put(usage_event)
+                if runtime == "codex":
+                    item_event = _codex_item_progress_event(message, str(getattr(message, "method", "") or ""))
+                    if item_event is not None:
+                        await queue.put(item_event)
+                else:
+                    for sdk_event in _agent_sdk_events_from_message(message):
+                        msg = str(sdk_event.get("message") or "").strip()
+                        if msg:
+                            await queue.put(
+                                AgentProgressEvent(
+                                    "agent",
+                                    "progress",
+                                    msg,
+                                    0.12,
+                                    data={"runtime": "claude_code", "agent_event": sdk_event},
+                                )
                             )
-                        )
-                if message.__class__.__name__ == "ResultMessage" and bool(
-                    getattr(message, "is_error", False)
-                ):
-                    if _is_claude_turn_limit_result(message):
-                        continue
-                    result = str(getattr(message, "result", "") or "Agent failed.")
-                    raise RuntimeError(result)
-        if session.session_id:
-            _save_agent_session(project_dir, session.session_id)
+                    if message.__class__.__name__ == "ResultMessage" and bool(
+                        getattr(message, "is_error", False)
+                    ):
+                        if _is_claude_turn_limit_result(message):
+                            continue
+                        result = str(getattr(message, "result", "") or "Agent failed.")
+                        raise RuntimeError(result)
+        finally:
+            # Persist session_id even when a feedback turn fails mid-flight
+            # (e.g. a Cloudflare 524) so the workspace stays resumable.
+            if session.session_id:
+                _save_agent_session(project_dir, session.session_id)
 
     scanner_task = asyncio.create_task(_scanner(), name="agent-feedback-svg-scanner")
     drainer_task = asyncio.create_task(_session_drainer(), name=f"agent-feedback-{runtime}")
@@ -2515,9 +2541,20 @@ def _validate_agent_report(project_dir: Path, report_path: Path) -> None:
             except json.JSONDecodeError:
                 has_recorded_limitation = True
         if has_sources and not external_used:
-            raise RuntimeError(
-                "External research sources exist, but agent_report.json does not mark external_research_used=true."
-            )
+            # Self-heal: research/sources.json holds real sources, so external
+            # research clearly happened — the agent merely forgot to set the
+            # flag.  Backfill it instead of failing an otherwise-complete deck.
+            report["external_research_used"] = True
+            external_used = True
+            try:
+                report_path.write_text(
+                    json.dumps(report, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+            except OSError:
+                logger.warning(
+                    "Failed to backfill external_research_used in agent_report.json"
+                )
         if not external_used and not has_sources and not has_recorded_limitation:
             raise RuntimeError(
                 "External research was enabled, but paper-ppt-research did not produce research/sources.json with sources or a concrete limitation."
@@ -2536,9 +2573,20 @@ def _validate_agent_report(project_dir: Path, report_path: Path) -> None:
             and not str(item.get("skip_reason") or "").strip()
         ]
         if missing_reason:
-            raise RuntimeError(
-                "Deep research SubAgent entries must include skip_reason when not used."
-            )
+            # Self-heal: the deck is already complete, the agent simply omitted
+            # a skip_reason for SubAgent scenarios it chose not to run.  Backfill
+            # a neutral reason instead of failing a finished deck.
+            for item in missing_reason:
+                item["skip_reason"] = "Not used in this run; no skip reason recorded by the agent."
+            try:
+                report_path.write_text(
+                    json.dumps(report, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+            except OSError:
+                logger.warning(
+                    "Failed to backfill SubAgent skip_reason in agent_report.json"
+                )
 
 
 def _empty_agent_output_message(project_dir: Path) -> str:
