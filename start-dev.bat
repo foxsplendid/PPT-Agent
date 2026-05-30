@@ -22,7 +22,7 @@ if errorlevel 1 (
 
 echo ==> Syncing backend dependencies with uv
 pushd "%ROOT%"
-call uv sync --locked
+call uv sync
 if errorlevel 1 (
   popd
   exit /b 1
