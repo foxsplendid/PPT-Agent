@@ -160,6 +160,9 @@ def main() -> int:
     requested_backend_port = int(os.environ.get("BACKEND_PORT", "8000"))
     backend_port = _choose_backend_port(backend_host, requested_backend_port)
     backend_base_url = f"http://{backend_host}:{backend_port}"
+    frontend_host = os.environ.get("FRONTEND_HOST", "127.0.0.1")
+    frontend_port = int(os.environ.get("FRONTEND_PORT", "5174"))
+    frontend_base_url = f"http://{frontend_host}:{frontend_port}"
     commands = [
         (
             f"backend:{backend_port}",
@@ -193,9 +196,9 @@ def main() -> int:
                 "dev",
                 "--",
                 "--host",
-                "127.0.0.1",
+                frontend_host,
                 "--port",
-                "5174",
+                str(frontend_port),
                 "--open",
             ],
             FRONTEND_DIR,
@@ -230,7 +233,7 @@ def main() -> int:
             )
         print("Paper PPT Agent is starting:", flush=True)
         print(f"  Backend:  {backend_base_url}", flush=True)
-        print("  Frontend: http://127.0.0.1:5173", flush=True)
+        print(f"  Frontend: {frontend_base_url}", flush=True)
         print("  Worker:   SQLiteHuey local queue (dynamic concurrency)", flush=True)
         print("Press Ctrl+C to stop all processes.", flush=True)
 
