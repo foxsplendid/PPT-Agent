@@ -162,6 +162,58 @@ Selection principle: Font size is based on **content density**, not design style
 | **Body** | **1x** | **24px** | **18px** |
 | Annotation | 0.75x | 18px | 14px |
 
+#### Formula Rendering Policy
+
+Formula rendering is part of Typography confirmation (item g). Recommend one policy and let the user confirm or override it.
+
+| Policy | Behavior | Use |
+|---|---|---|
+| `mixed` (default) | Render complex formula-worthy expressions to PNG; keep simple inline math as editable text / Unicode | Most academic, engineering, educational, and technical decks |
+| `render-all` | Render every formula-worthy expression to PNG | Formula-heavy teaching / research decks where visual consistency matters more than editability |
+| `text-only` | Do not render formulas; keep expressions as editable text / Unicode | Business decks, light technical briefs, or user preference for editability |
+
+**Formula-worthy expressions**:
+
+| Render as PNG | Keep as text |
+|---|---|
+| Fractions, radicals, integrals, sums, limits, matrices, multiline derivations, complex super/subscripts | `O(n log n)`, `x = 3`, single Greek letters, short inline variables, simple percentages / KPIs |
+
+**Hard rule**: `$...$` / `$$...$$` in source material are input signals only. Do not scan output files for dollar-delimited formulas. After confirmation, Strategist decides which source expressions become formula assets and writes them explicitly to `images/formula_manifest.json`.
+
+**Forbidden — invented math**: formula assets must faithfully structure source content. Do not create a new equation just to make a slide look more academic.
+
+**Manifest step**: when policy is `mixed` or `render-all` and formulas are selected, write the manifest first, then render before producing the design spec:
+
+```bash
+python3 scripts/latex_render.py <project_path> --manifest images/formula_manifest.json
+```
+
+Manifest shape (`<project_path>/images/formula_manifest.json`):
+
+```json
+{
+  "providers": ["codecogs", "quicklatex", "mathpad", "wikimedia"],
+  "items": [
+    {
+      "id": "formula_001",
+      "latex": "E = mc^2",
+      "display": "block",
+      "color": "#1D1D1F",
+      "background": "#FFFFFF",
+      "transparent": true,
+      "dpi": 400,
+      "filename": "formula_001.png"
+    }
+  ]
+}
+```
+
+The renderer tries providers in order (codecogs → quicklatex → mathpad → wikimedia; the first three preserve color, wikimedia is an availability fallback) and writes `provider`, `pixel_width`, `pixel_height`, `ratio`, and `status` back into each item.
+
+**Formula rows in the image resource list**: rendered LaTeX PNGs are image rows with `Type: Latex Formula` and `Status: Rendered`. They are not AI images and never go through Image_Generator. Always treat them as **no-crop** — size the container to the manifest `ratio` and never stretch or crop the formula.
+
+**Failure fallback**: rendering needs network access to at least one provider. If every provider fails for an item (`status: Failed`), fall back to that formula as editable text / Unicode; do not block the deck.
+
 ### h. Image Usage Confirmation
 
 | Option | Approach | Suitable Scenarios |

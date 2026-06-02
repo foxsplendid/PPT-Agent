@@ -39,12 +39,14 @@ validates SVGs, finalizes them, and exports PPTX.
    During long work, periodically check `agent_feedback/` for user guidance.
 5. Write `manuscript.md` as slide-structured content.
 6. Write `design_spec.md` with deck-level visual rules and per-slide intent.
-7. Write each slide as soon as it is usable:
+7. If the paper has formula-worthy math, render it to PNG before authoring the
+   slides that use it. See the `Formula Rendering` section below.
+8. Write each slide as soon as it is usable:
    - `svg_output/slide_001.svg`
    - `svg_output/slide_002.svg`
    - etc.
-8. Optionally write speaker notes in `notes/slide_001.md`, etc.
-9. Write `agent_report.json` when finished.
+9. Optionally write speaker notes in `notes/slide_001.md`, etc.
+10. Write `agent_report.json` when finished.
 
 ## Agent Behavior
 
@@ -69,6 +71,75 @@ validates SVGs, finalizes them, and exports PPTX.
 - Treat `source_assets/figures.json` as the paper-figure contract. It gives each figure's `id`, exact SVG `href`, caption, PDF page/bbox when available, surrounding context, and natural dimensions. Select figures by caption/page/context, not by filename alone.
 - Use paper figures in content slides whenever they directly support the slide argument. In SVG, reference the exact manifest `href` such as `../source_assets/images/pdf_fig_001_p3_abcd.png`; preserve the listed aspect ratio.
 - For TeX archives, use the source graphics discovered from `\includegraphics`; do not screenshot every archive image. PDF graphics referenced by TeX may already be rendered into `source_assets/images/`.
+
+## Formula Rendering
+
+Faithful math is mandatory for academic decks. Render formula-worthy LaTeX
+(MSE / RMSE, fractions, radicals, sums, integrals, limits, matrices, multiline
+derivations, complex sub/superscripts) to PNG after `design_spec.md` and before
+authoring the slides that use them.
+
+Policy (default `mixed`):
+
+- `mixed` (default): render complex formula-worthy expressions to PNG; keep
+  simple inline math as editable text / Unicode — `X_Mg`, `P–T`, `x = 3`,
+  single Greek letters, `O(n log n)`, short variables, percentages / KPIs.
+- `render-all`: render every formula-worthy expression to PNG (formula-heavy
+  teaching / research decks where visual consistency matters most).
+- `text-only`: render nothing; keep all expressions as editable text / Unicode.
+
+Never invent equations to look more academic; formula assets must faithfully
+reflect the paper.
+
+Steps:
+
+1. Write `images/formula_manifest.json`, one item per formula:
+
+   ```json
+   {
+     "providers": ["codecogs", "quicklatex", "mathpad", "wikimedia"],
+     "items": [
+       {
+         "id": "formula_001",
+         "latex": "RMSE = \\sqrt{MSE}",
+         "display": "block",
+         "color": "#1D1D1F",
+         "background": "#FFFFFF",
+         "transparent": true,
+         "dpi": 400,
+         "filename": "formula_001.png"
+       }
+     ]
+   }
+   ```
+
+2. Render with the workspace Python (`agent_task.json.paths.python` or
+   `PAPER_PPT_PYTHON`). Validate the manifest first with `--dry-run`:
+
+   ```bash
+   "<python>" skills/paper-ppt-generate/scripts/latex_render.py . --dry-run
+   "<python>" skills/paper-ppt-generate/scripts/latex_render.py . --manifest images/formula_manifest.json
+   ```
+
+   The renderer tries providers in order (codecogs → quicklatex → mathpad →
+   wikimedia; the first three preserve color, wikimedia is an availability
+   fallback), writes each PNG into `images/`, and writes back `provider`,
+   `pixel_width`, `pixel_height`, `ratio`, and `status` per item.
+
+3. Reference the rendered PNG from the slide SVG by relative path and preserve
+   the manifest `ratio` (no-crop): size the container to the formula's native
+   width:height and use `preserveAspectRatio="xMidYMid meet"`. Never stretch or
+   crop a formula. The finalize step embeds these PNGs as Base64 automatically.
+
+   ```xml
+   <image href="../images/formula_001.png" x="..." y="..." width="..." height="..."
+          preserveAspectRatio="xMidYMid meet"/>
+   ```
+
+Failure fallback: rendering needs network access to at least one provider. If
+every provider fails for an item (`status` is `Failed`), do NOT block the deck —
+fall back to that formula as editable text / Unicode in the SVG, and record the
+fallback (formula id + that rendering failed) in `agent_report.json`.
 
 ## Live Preview
 
