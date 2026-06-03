@@ -566,3 +566,111 @@ async def interrupt_agent_generation(job_id: str) -> AgentFeedbackResponse:
         error=None,
     )
     return AgentFeedbackResponse(job_id=job_id, status="interrupting")
+
+
+_AGENT_RESUME_INSTRUCTION = (
+    "The previous generation run was interrupted before it finished (for "
+    "example a transient network or proxy failure). Review the current "
+    "workspace state — agent_task.json, manuscript.md, design_spec.md, the "
+    "existing svg_output/*.svg, and agent_report.json — then continue from "
+    "where it stopped: produce any missing or incomplete slides and finish the "
+    "deck. Do not redo slides that are already complete and correct."
+)
+
+
+@router.post("/generate/{job_id}/resume", response_model=AgentFeedbackResponse)
+async def resume_agent_generation(job_id: str) -> AgentFeedbackResponse:
+    """Resume an Agent job that stopped mid-run (e.g. a Cloudflare 524).
+
+    Reuses the existing workspace and the SDK session id that the pipeline's
+    finally block persisted to ``agent_session.json``, so the runtime picks up
+    where it left off instead of regenerating from scratch. This closes the gap
+    where a transient failure left the job in ``error`` with a resumable session
+    that no endpoint consumed.
+    """
+    job = session_manager.get_job(job_id)
+    if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Job '{job_id}' not found.",
+        )
+    if not str(job.provider or "").startswith("agent:"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Resume is only supported for Agent generation jobs.",
+        )
+
+    from backend.orchestrator.agent_session_registry import get as get_live_session
+
+    if get_live_session(job_id) is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Agent job is already running; nothing to resume.",
+        )
+    if not job.project_dir:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Job has no workspace to resume.",
+        )
+
+    project_dir = Path(job.project_dir)
+    if not project_dir.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project workspace not found.",
+        )
+
+    from backend.orchestrator.agent_pipeline import _load_agent_session_id
+
+    prev_session_id = _load_agent_session_id(project_dir)
+    if not prev_session_id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="No resumable session was persisted for this job.",
+        )
+
+    runtime = _agent_runtime_from_job(job)
+    scheduler = get_scheduler()
+    session_manager.update_job(
+        job_id,
+        status="pending",
+        message="Queued to resume Agent generation",
+        progress=0.05,
+        error=None,
+    )
+
+    async def _runner() -> None:
+        await _run_agent_feedback_job(
+            job_id,
+            project_dir=project_dir,
+            feedback=_AGENT_RESUME_INSTRUCTION,
+            runtime=runtime,
+            total_slides_hint=job.total_slides,
+            session_id=prev_session_id,
+        )
+
+    try:
+        await scheduler.submit(job_id, _runner, priority=5)
+        return AgentFeedbackResponse(job_id=job_id, status="queued")
+    except RuntimeError as exc:
+        session_manager.update_job(
+            job_id,
+            status="error",
+            message=str(exc),
+            error=str(exc),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    except (QueueFull, SchedulerDraining) as exc:
+        session_manager.update_job(
+            job_id,
+            status="error",
+            message=str(exc),
+            error=str(exc),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc

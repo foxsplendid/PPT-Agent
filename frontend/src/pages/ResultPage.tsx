@@ -79,6 +79,7 @@ export function ResultPage() {
     runs,
     removeHistory,
     sendAgentFeedback,
+    resumeCurrentAgent,
   } = useGeneration();
 
   // Read logs, criticEvents, and config from the specific run matching the
@@ -122,6 +123,7 @@ export function ResultPage() {
   const [feedback, setFeedback] = useState("");
   const [refineLoading, setRefineLoading] = useState(false);
   const [cancelLoading, setCancelLoading] = useState(false);
+  const [resumeLoading, setResumeLoading] = useState(false);
   const [refineError, setRefineError] = useState<string | null>(null);
   const [targetPagesSet, setTargetPagesSet] = useState<Set<number>>(new Set());
   const [allowStructureChanges, setAllowStructureChanges] = useState(false);
@@ -648,6 +650,17 @@ export function ResultPage() {
             messages={agentMessages}
             canStop={canCancelDisplayedRun}
             stopPending={cancelLoading || resultRunStatus === "cancelling" || resultRunStatus === "pausing"}
+            canResume={resultRunStatus === "error"}
+            resumePending={resumeLoading}
+            onResume={async () => {
+              if (!jobId) return;
+              setResumeLoading(true);
+              try {
+                await resumeCurrentAgent(jobId);
+              } finally {
+                setResumeLoading(false);
+              }
+            }}
             allowSendWhenTerminal
             onStop={async () => {
               setCancelLoading(true);

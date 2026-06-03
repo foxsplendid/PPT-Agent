@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import { cancelJob, deleteJob, deleteSession, fetchBackendHealth, fetchJobEvents, fetchJobStatus, fetchPreview, fetchProjectPreview, fetchProviders, generatePresentation, interruptGenerationAgent, isNotFoundError, refinePresentation, sendGenerationAgentFeedback, uploadPaper } from "../lib/api";
+import { cancelJob, deleteJob, deleteSession, fetchBackendHealth, fetchJobEvents, fetchJobStatus, fetchPreview, fetchProjectPreview, fetchProviders, generatePresentation, interruptGenerationAgent, isNotFoundError, refinePresentation, resumeGenerationAgent, sendGenerationAgentFeedback, uploadPaper } from "../lib/api";
 import type {
   CriticEvent,
   GenerateRequestPayload,
@@ -129,6 +129,7 @@ interface GenerationState {
   startRefine: (payload: RefineRequestPayload) => Promise<string>;
   cancelCurrentRun: () => Promise<void>;
   interruptCurrentAgent: () => Promise<void>;
+  resumeCurrentAgent: (jobId?: string) => Promise<void>;
   sendAgentFeedback: (message: string, jobId?: string) => Promise<void>;
   connect: (jobId: string, options?: { replayFromStart?: boolean }) => void;
   hydrateAgentHistory: (jobId: string, options?: { force?: boolean }) => Promise<void>;
@@ -882,6 +883,56 @@ export const useGeneration = create<GenerationState>()(
         } catch (error) {
           set({
             error: error instanceof Error ? error.message : "Failed to pause Agent",
+          });
+        }
+      },
+      async resumeCurrentAgent(targetJobId) {
+        const jobId = targetJobId ?? get().jobId;
+        if (!jobId) {
+          return;
+        }
+        try {
+          const response = await resumeGenerationAgent(jobId);
+          if (response.status === "queued") {
+            const terminalSocket = get().socketsByJob[jobId];
+            terminalSocket?.close();
+            set((state) => {
+              const currentRun = state.runs[jobId] ?? createRunSnapshot(jobId);
+              const nextSockets = { ...state.socketsByJob };
+              if (nextSockets[jobId] === terminalSocket) {
+                delete nextSockets[jobId];
+              }
+              const nextJob = currentRun.job
+                ? {
+                    ...currentRun.job,
+                    status: "pending",
+                    message: "Queued to resume Agent generation",
+                    progress: Math.max(0.05, currentRun.job.progress ?? 0),
+                    error: null,
+                  }
+                : currentRun.job;
+              const updatedRun: RunSnapshot = {
+                ...currentRun,
+                job: nextJob,
+                connectionStatus: "connecting",
+                error: undefined,
+              };
+              return {
+                ...(state.jobId === jobId ? applyRunToCurrent(updatedRun) : {}),
+                activeJobId: jobId,
+                runs: {
+                  ...state.runs,
+                  [jobId]: updatedRun,
+                },
+                socketsByJob: nextSockets,
+              };
+            });
+            get().syncHistory(jobId);
+            get().connect(jobId);
+          }
+        } catch (error) {
+          set({
+            error: error instanceof Error ? error.message : "Failed to resume Agent",
           });
         }
       },

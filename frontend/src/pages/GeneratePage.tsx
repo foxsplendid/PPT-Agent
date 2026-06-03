@@ -1041,6 +1041,9 @@ export function GenerationAgentConsole({
   stopPending,
   onStop,
   onSend,
+  onResume,
+  canResume = false,
+  resumePending = false,
   allowSendWhenTerminal = false,
 }: {
   job?: JobStatus;
@@ -1051,6 +1054,9 @@ export function GenerationAgentConsole({
   stopPending: boolean;
   onStop: () => Promise<void> | void;
   onSend: (text: string) => Promise<void> | void;
+  onResume?: () => Promise<void> | void;
+  canResume?: boolean;
+  resumePending?: boolean;
   allowSendWhenTerminal?: boolean;
 }) {
   const { t } = useLocale();
@@ -1189,6 +1195,21 @@ export function GenerationAgentConsole({
             </GenerationTooltip>
           </div>
           <div className="generation-agent-actions">
+            {canResume && onResume ? (
+              <GenerationTooltip content={t("generation.agent.resume")}>
+                <span className="generation-tooltip-trigger">
+                  <button
+                    type="button"
+                    className="secondary-button generation-agent-icon-button"
+                    disabled={resumePending}
+                    onClick={() => void onResume()}
+                    aria-label={t("generation.agent.resume")}
+                  >
+                    {resumePending ? <LoaderCircle size={14} className="spin" /> : <Redo2 size={14} />}
+                  </button>
+                </span>
+              </GenerationTooltip>
+            ) : null}
             {canStop ? (
               <GenerationTooltip content={stopLabel}>
                 <span className="generation-tooltip-trigger">

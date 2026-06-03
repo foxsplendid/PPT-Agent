@@ -492,6 +492,14 @@ export async function interruptGenerationAgent(
   });
 }
 
+export async function resumeGenerationAgent(
+  jobId: string,
+): Promise<GenerationAgentFeedbackResponse> {
+  return request<GenerationAgentFeedbackResponse>(`/api/generate/${jobId}/resume`, {
+    method: "POST",
+  });
+}
+
 export async function fetchJobStatus(jobId: string, init?: RequestInit): Promise<JobStatus> {
   return request<JobStatus>(`/api/status/${jobId}`, init);
 }
