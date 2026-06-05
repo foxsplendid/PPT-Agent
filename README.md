@@ -1,7 +1,7 @@
-# Paper PPT Agent
+# Paper PPT Agent (课题组自用定制版)
 
 <p align="center">
-  <b>上传论文，AI 自动生成演示文稿</b>
+  <b>上传学术论文，多智能体自动生成高保真演示文稿</b>
 </p>
 
 <p align="center">
@@ -19,145 +19,116 @@
 
 ---
 
-基于多智能体协作的学术论文演示文稿自动生成工具。上传论文 PDF 或 TeX 源码，由 AI 完成内容提炼、结构规划、版式设计与视觉质量审查，最终输出可编辑的 PowerPoint 文件。
+> [!IMPORTANT]
+> **📢 课题组自用声明**  
+> 本项目是基于开源多智能体项目进行定制与增强的**课题组自用**学术论文演示文稿（PPT）自动生成工具。  
+> 本版本派生自上游开源仓库 [CRui5in/paper-ppt-agent](https://github.com/CRui5in/paper-ppt-agent)（基于 2026年5月提交版本 `0c5d9f6`），并根据课题组在实际科研汇报、组会展示及多模型中转环境下的真实需求，进行了多项底层的深度定制与功能加固。
 
-![screenshot](./screenshot.png)
+---
 
-## 目录
+## 🛠️ 课题组专属定制增强特性
 
-- [✨ 功能亮点](#-功能亮点)
-- [📸 效果展示](#-效果展示)
-- [⚙️ 环境要求](#️-环境要求)
-- [🚀 快速开始](#-快速开始)
-- [📋 更新日志](#-更新日志)
-- [🗺️ 开发计划](#️-开发计划)
-- [🙏 参考项目](#-参考项目)
-- [📄 许可证](#-许可证)
+相比上游原始版本，本定制版累计新增并优化了以下核心技术模块：
+
+1.  **任务暂停与一键恢复 (Resume 工作流)**
+    *   在后端管道引入了会话持久化保护，当任务遭遇大模型响应中断或触发人工审核（Hard-Stop）时，前端工作台提供一键 `Resume` 按钮，通过 `POST /generate/{job_id}/resume` 直接**原地续跑**，无需从头重新生成，极大地保护了长任务的执行连贯性并节省 Token。
+2.  **LaTeX 学术公式高精度渲染管线**
+    *   在 PPT 技能生成模块中，独创性地合入了 [latex_render.py](file:///D:/Code/Jupyter/PPT-Agent/assets/agent_skills/paper-ppt-generate/scripts/latex_render.py) 编译管线，能自动提取正文中的数学公式、化学式并转换为高保真 PNG 图片原生嵌入幻灯片，彻底解决学术 PPT 复杂的公式排版乱码痛点。
+3.  **高精度 Ingestion 摄取（MinerU 接入与本地降级）**
+    *   集成了新一代 [MinerU](https://github.com/opendatalab/MinerU) PDF 解析引擎，自动重构双栏阅读顺序并提取高还原度 HTML 表格。同时设计了**自动降级（Fallback）**防御，在 MinerU service 波动或无网时，优雅回退至本地 `PyMuPDF` 纯文本提取，确保系统全天候高可用。
+4.  **大模型流式输出与 524 超时防御**
+    *   将 LLM 交互逻辑升级为 Stream 块流式接收，并在底层锁定了合理的 LLM 超时边界，完全解决了官方版面对长上下文论文时容易因为 API 响应过慢导致 Cloudflare 网关返回 `524` 错误导致任务彻底挂起的漏洞。
+5.  **多模型中继与自定义服务商适配**
+    *   在模型注册表和底层驱动中，接入了对第三方中继聚合器（OpenAI-Next）以及小米 MiMo 大模型的适配支持；同时修正了本地 `.env` 环境变量的优先级，使其能无损注入到 Vite 前端及 Uvicorn 后端子进程。
 
 ---
 
 ## ✨ 功能亮点
 
 | 功能 | 说明 |
-|:-----|:-----|
-| **多智能体流水线** | Strategist → Executor → Critic 三阶段协作，内容提炼与版式生成一体化 |
-| **Agent 生成模式** | 工作台支持 Claude Code / Codex 本机 Agent 运行时生成演示文稿 |
-| **静态 + 视觉 QA** | 自动检测文字溢出、元素重叠、低对比度等问题并触发修复 |
-| **图标语义匹配** | 基于 Gemini Embedding 的 RAG 语义搜索，自动匹配最合适的图标 |
-| **反馈迭代** | 指定单页或全量重生成，支持结构调整（增删插排），自动版本快照 |
-| **实时可观测** | Agent 日志流、Token 用量聚合、Critic 逐页详情面板 |
-| **多语言** | 支持中英双语及自定义语言输出 |
-| **多模型** | OpenAI / Anthropic / Gemini / DeepSeek 及自定义兼容接口 |
-| **模板导入** | 支持 PPTX 直接导入为五页模板，也支持基于 Claude Code 的 Agent 模式自动分析、模板化与预览 |
-| **PPT 编辑器** | 内置基于 PPTist 的可视化编辑器，支持结果页和模板导入页中直接调整页面、备注、字体与导出 |
-| **Deep Research** | 外部研究增强（arXiv / Semantic Scholar / Web），相关性自动过滤 |
+| :--- | :--- |
+| **多智能体流水线** | Strategist $\rightarrow$ Executor $\rightarrow$ Critic 三阶段协作，内容提炼与版式生成一体化。 |
+| **任务续跑恢复** | *[定制]* 支持生成阻断后一键恢复（Resume），防超时与中断，高度省 Token。 |
+| **高保真公式渲染** | *[定制]* 学术 LaTeX 公式自动转 PNG 矢量高精图，直接生成优雅排版。 |
+| **MinerU 高精摄取** | *[定制]* 双栏论文阅读序重构，无框线表格转 HTML 原生组件，带 PyMuPDF 自动降级。 |
+| **反馈迭代** | 指定单页或全量重生成，支持结构调整，自动版本快照与历史回溯。 |
+| **PPT 编辑器** | 内置基于 PPTist 深度定制的可视化编辑器，支持结果页直接调整文字、备注、字体并快速导出。 |
+| **RAG 图标匹配** | 基于 Gemini Embedding 的 RAG 语义搜索，自动匹配最合适的幻灯片小图标。 |
+| **Deep Research** | 外部科研研究增强（arXiv / Semantic Scholar / Web），相关性自动过滤。 |
 
-## 📸 效果展示
-
-<p align="center">
-  <img src="./demo.png" width="700" alt="生成流程">
-</p>
+---
 
 ## ⚙️ 环境要求
 
-| 依赖 | 版本 |
-|:-----|:-----|
+| 依赖 | 最低版本要求 |
+| :--- | :--- |
 | 🐍 Python | 3.11+ |
 | 📦 [uv](https://docs.astral.sh/uv/) | latest |
 | 🟢 Node.js | 18+ |
 
-至少一种模型提供商的 API Key：OpenAI / Anthropic / Gemini / DeepSeek 或自定义 BaseURL 兼容接口。
+*   **API 密钥配置**：在根目录下创建并配置 `.env` 文件。支持官方 OpenAI / Anthropic / Gemini / DeepSeek 密钥，或者自定义中继代理 API（如 OpenAI-Next）。
+*   **LaTeX 渲染依赖**：使用公式渲染管线需要本地安装好基本的 matplotlib 以及相关的科学计算库依赖。
 
-可选：使用工作台的 Agent 生成模式前，需要在本机安装并配置好 Claude Code 或 Codex。模板导入的 Agent 模式当前使用 Claude Code，需要在本机安装并配置好 Claude Code。
+---
 
 ## 🚀 快速开始
 
 ```bash
-# 克隆仓库
-git clone https://github.com/CRui5in/paper-ppt-agent.git
-cd paper-ppt-agent
+# 克隆课题组自用定制仓库
+git clone https://github.com/foxsplendid/PPT-Agent.git
+cd PPT-Agent
 
-# 一键启动（自动安装依赖 + 启动前后端）
+# 一键启动（自动安装依赖并后台挂载前后端服务）
 # Windows
 .\start-dev.bat
 # Linux
 sh start-dev.sh
 ```
 
-启动后访问：前端 [http://127.0.0.1:5173](http://127.0.0.1:5173) · 后端 [http://127.0.0.1:8000](http://127.0.0.1:8000)
+*   **服务访问入口**：
+    *   **前端工作台**：[http://127.0.0.1:5174](http://127.0.0.1:5174)
+    *   **后端 API 服务**：[http://127.0.0.1:8100](http://127.0.0.1:8100)
+
+*(注：相比官方默认端口，本版本已将前端调整为 `5174`，后端调整为 `8100`，以防止与本地其他正在运行的交互服务冲突。)*
 
 <details>
-<summary>📎 手动启动</summary>
+<summary>📎 手动分步启动说明</summary>
 
 ```bash
-# 安装依赖
+# 后端安装依赖并启动
 uv sync --locked
-cd frontend && npm install && cd ..
+uv run python -m uvicorn backend.app:app --host 127.0.0.1 --port 8100 --reload --reload-dir backend
 
-# 后端
-uv run python -m uvicorn backend.app:app --host 127.0.0.1 --port 8000 --reload --reload-dir backend
-
-# 前端
-cd frontend && npm run dev -- --host 127.0.0.1 --port 5173 --strictPort
+# 前端安装依赖并启动
+cd frontend
+npm install
+npm run dev -- --host 127.0.0.1 --port 5174 --strictPort
 ```
 
 </details>
 
 ---
 
-## 📋 更新日志
+## 📋 更新日志（课题组演进记录）
 
-### 2026 年 5 月
-
-- 🧠 **DeepSeek 专用接口** — 独立的 DeepSeek 提供商支持与思考模式配置
-- 👁️ **视觉 QA（实验性）** — 调用多模态大模型将幻灯片渲染为图像进行布局与对比度审查
-- 🖥️ **实时 SVG 预览 + 日志面板 + Critic 详情视图** — 生成过程中实时查看幻灯片、Agent 日志与审查详情
-- 🎯 **图标 RAG 语义搜索** — 基于 Gemini Embedding 从图标库中语义检索匹配候选，可独立开关
-- 🎨 **模板系统与自定义字体** — 预设行业风格模板，支持自定义标题/正文字体配置
-- 🧩 **模板导入** — 支持 PPTX 直接导入、五页模板映射，以及基于 Claude Code 的 Agent 模式自动分析和模板化
-- 🤖 **Agent 生成模式** — 工作台接入 Claude Code / Codex 生成演示文稿
-- 📝 **PPT 编辑器** — 在生成结果与模板导入流程中接入可视化 PPT 编辑器，支持页面编辑、备注、保存、重新导出
-- 🔬 **Deep Research 工作流** — 外部研究增强（arXiv / Semantic Scholar / Web）+ 相关性过滤
-- 🖼️ **在线搜图** — 利用 Tavily / SerpAPI Key 在线搜索配图，支持 AI 智能布局分析与插入、一键撤消、图片下载
-- 🎨 **UI 重构** — 基于 Konva 画布编辑器重写 UI，升级 SVG-to-PPTX 转换器
-
-### 2026 年 4 月
-
-- 🔒 **静态 Critic 增强** — 新增装饰线遮挡检测、低对比度文本检测，修复多行文字宽度估算误报
-- 📁 **版本历史管理** — 每次反馈迭代自动归档快照，支持版本对比与回溯
-- 🔎 **Token 日志筛选** — 按模型、阶段、页码、任务筛选 LLM 调用记录，支持点击展开详情
-- ⏹️ **生成取消** — 支持在流水线运行中取消当前任务
-- 🤖 **多智能体流水线** — Strategist → Executor → Critic 三阶段协作，支持 SVG 自动修复与反馈迭代
-
----
-
-## 🗺️ 开发计划
-
-- [ ] 🧠 本地大模型支持
+### 2026 年 6 月 (课题组定制强化版)
+*   🧠 **一键 Resume 任务恢复机制** — 引入任务暂停与状态重续。
+*   🔬 **LaTeX 公式渲染管线** — 高保真将公式渲染为幻灯片内 PNG 图片。
+*   🔍 **MinerU 解析器与自动 Fallback** — 支持对复杂 PDF 论文的高解析度 Ingestion。
+*   📡 **大模型 Streaming 改写** — 大幅减低 LLM 请求超时挂起的风险。
+*   ⚙️ **多模型服务商与端口隔离** — 扩充 OpenAI-Next 聚合器、小米 MiMo，隔离前端（5174）与后端（8100）端口。
 
 ---
 
 ## 🙏 参考项目
 
-- [PPTAgent](https://github.com/icip-cas/PPTAgent) — 流程设计与 Agent 架构参考
-- [ppt-master](https://github.com/hugohe3/ppt-master) — 部分工程实现参考
-- [PPTist](https://github.com/pipipi-pikachu/PPTist) — PPT 编辑器能力参考与集成基础
+*   [paper-ppt-agent](https://github.com/CRui5in/paper-ppt-agent) — 本项目直接派生自该上游开源项目。感谢原作者的优秀框架设计。
+*   [PPTAgent](https://github.com/icip-cas/PPTAgent) — 流程设计与 Agent 多智能体协作架构参考。
+*   [ppt-master](https://github.com/hugohe3/ppt-master) — 部分底层 PPTX 编译器工程实现参考。
+*   [PPTist](https://github.com/pipipi-pikachu/PPTist) — Web 可视化编辑器集成参考。
+
+---
 
 ## 📄 许可证
 
-本项目基于 [GNU Affero General Public License v3.0 (AGPL-3.0)](./LICENSE) 发布。
-
-## 📬 联系方式
-
-- 💬 GitHub Issues: [CRui5in/paper-ppt-agent/issues](https://github.com/CRui5in/paper-ppt-agent/issues)
-- 📧 Email: qinruoxuan2018@gmail.com
-
-## ⭐ Star History
-
-<a href="https://www.star-history.com/?repos=CRui5in%2Fpaper-ppt-agent&type=date&legend=top-left">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=CRui5in/paper-ppt-agent&type=date&theme=dark&legend=top-left" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=CRui5in/paper-ppt-agent&type=date&legend=top-left" />
-    <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=CRui5in/paper-ppt-agent&type=date&legend=top-left" />
-  </picture>
-</a>
+本项目基于 [GNU Affero General Public License v3.0 (AGPL-3.0)](./LICENSE) 发布。在使用、分发或提供网络服务时，必须严格遵守 AGPL-3.0 协议的相关规定。
