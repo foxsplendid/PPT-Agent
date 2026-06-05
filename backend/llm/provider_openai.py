@@ -10,6 +10,7 @@ from types import SimpleNamespace
 
 import httpx
 from openai import AsyncOpenAI
+from openai.lib._parsing import type_to_response_format_param
 from pydantic import BaseModel
 
 from backend.config import settings
@@ -87,6 +88,9 @@ class OpenAIProvider(LLMProvider):
         self._base_url = (normalized_base_url or "").rstrip("/")
         self._deepseek_settings = deepseek_settings
         self._openai_settings = openai_settings
+        # Set once we learn an endpoint rejects streaming, so subsequent
+        # calls skip the stream attempt and go straight to the buffered path.
+        self._streaming_unsupported = False
 
     def _is_deepseek_request(self, model: str | None = None) -> bool:
         return (
@@ -487,6 +491,54 @@ class OpenAIProvider(LLMProvider):
         text = str(exc).lower()
         return "stream_options" in text or "include_usage" in text
 
+    def _is_streaming_unsupported_error(self, exc: BaseException) -> bool:
+        """Detect endpoints that reject streaming itself (not just
+        ``stream_options``), e.g. a custom OpenAI-compatible gateway whose
+        chat endpoint only works in buffered mode and returns a 400 like
+        "streaming is not supported"."""
+        text = str(exc).lower()
+        if "stream_options" in text or "include_usage" in text:
+            return False
+        return "stream" in text and (
+            "not support" in text
+            or "unsupported" in text
+            or "not allowed" in text
+            or "is disabled" in text
+        )
+
+    async def _create_buffered_completion(self, kwargs: dict):
+        """Original non-streaming path: let the SDK buffer the full response.
+
+        Used for endpoints that only support non-streaming chat completions,
+        preserving behavior for setups that worked before streaming was the
+        default read mode.
+        """
+        buffered_kwargs = dict(kwargs)
+        buffered_kwargs.pop("stream", None)
+        buffered_kwargs.pop("stream_options", None)
+        return await self._client.chat.completions.create(**buffered_kwargs)
+
+    def _chat_kwargs_with_response_format(
+        self,
+        kwargs: dict,
+        response_format: type[BaseModel],
+    ) -> dict:
+        structured_kwargs = dict(kwargs)
+        structured_kwargs["response_format"] = type_to_response_format_param(
+            response_format
+        )
+        return structured_kwargs
+
+    def _attach_parsed_response_format(
+        self,
+        resp,
+        response_format: type[BaseModel],
+    ):
+        content = resp.choices[0].message.content or ""
+        parsed = response_format.model_validate_json(content)
+        resp.choices[0].message.parsed = parsed
+        return resp
+
     async def _consume_chat_stream(self, kwargs: dict):
         """Run a chat completion in streaming mode, accumulating it into a
         non-streaming response shape the rest of ``chat()`` already expects.
@@ -498,6 +550,11 @@ class OpenAIProvider(LLMProvider):
         flowing so the timeout never fires. ``include_usage`` asks the server
         for a final usage chunk so token accounting survives the switch.
         """
+        # Endpoint already proved it only does buffered responses — don't
+        # waste a round trip re-attempting the stream.
+        if self._streaming_unsupported:
+            return await self._create_buffered_completion(kwargs)
+
         stream_kwargs = dict(kwargs)
         stream_kwargs["stream"] = True
         stream_kwargs.setdefault("stream_options", {"include_usage": True})
@@ -550,7 +607,20 @@ class OpenAIProvider(LLMProvider):
             if "stream_options" in stream_kwargs and self._is_stream_options_error(exc):
                 retry_kwargs = dict(stream_kwargs)
                 retry_kwargs.pop("stream_options", None)
-                return await run(retry_kwargs)
+                try:
+                    return await run(retry_kwargs)
+                except BaseException as retry_exc:
+                    if self._is_streaming_unsupported_error(retry_exc):
+                        self._streaming_unsupported = True
+                        return await self._create_buffered_completion(kwargs)
+                    raise
+            # Endpoint rejects streaming entirely (not just stream_options):
+            # fall back to the original buffered completion so non-streaming
+            # endpoints that worked before keep working.
+            if self._is_streaming_unsupported_error(exc):
+                self._streaming_unsupported = True
+                return await self._create_buffered_completion(kwargs)
+
             raise
 
     async def _parse_chat_completion(
@@ -558,12 +628,40 @@ class OpenAIProvider(LLMProvider):
         kwargs: dict,
         response_format: type[BaseModel],
     ):
+        structured_kwargs = self._chat_kwargs_with_response_format(
+            kwargs,
+            response_format,
+        )
+        try:
+            resp = await call_with_retry(
+                lambda: self._consume_chat_stream(structured_kwargs)
+            )
+            return self._attach_parsed_response_format(resp, response_format)
+        except BaseException as exc:
+            if self._should_use_raw_compat_fallback(structured_kwargs, exc):
+                resp = await self._create_raw_chat_completion(structured_kwargs)
+                return self._attach_parsed_response_format(resp, response_format)
+            fallbacks = self._fallback_chat_kwargs(structured_kwargs)
+            if not fallbacks or not self._is_parameter_compat_error(exc):
+                raise
+            for index, fallback in enumerate(fallbacks):
+                try:
+                    resp = await call_with_retry(
+                        lambda: self._consume_chat_stream(fallback)
+                    )
+                    return self._attach_parsed_response_format(resp, response_format)
+                except BaseException as fallback_exc:
+                    if (
+                        index >= len(fallbacks) - 1
+                        or not self._is_parameter_compat_error(fallback_exc)
+                    ):
+                        raise
+            raise
+
+    async def _create_stream(self, kwargs: dict):
         try:
             return await call_with_retry(
-                lambda: self._client.beta.chat.completions.parse(
-                    **kwargs,
-                    response_format=response_format,
-                )
+                lambda: self._client.chat.completions.create(**kwargs)
             )
         except BaseException as exc:
             fallbacks = self._fallback_chat_kwargs(kwargs)
@@ -572,10 +670,7 @@ class OpenAIProvider(LLMProvider):
             for index, fallback in enumerate(fallbacks):
                 try:
                     return await call_with_retry(
-                        lambda: self._client.beta.chat.completions.parse(
-                            **fallback,
-                            response_format=response_format,
-                        )
+                        lambda: self._client.chat.completions.create(**fallback)
                     )
                 except BaseException as fallback_exc:
                     if (
@@ -693,24 +788,7 @@ class OpenAIProvider(LLMProvider):
         )
 
         async with llm_request_slot():
-            stream = None
-            try:
-                stream = await self._client.chat.completions.create(**kwargs)
-            except BaseException as exc:
-                fallbacks = self._fallback_chat_kwargs(kwargs)
-                if not fallbacks or not self._is_parameter_compat_error(exc):
-                    raise
-                for index, fallback in enumerate(fallbacks):
-                    try:
-                        stream = await self._client.chat.completions.create(**fallback)
-                        break
-                    except BaseException as fallback_exc:
-                        if (
-                            index >= len(fallbacks) - 1
-                            or not self._is_parameter_compat_error(fallback_exc)
-                        ):
-                            raise
-            assert stream is not None
+            stream = await self._create_stream(kwargs)
             async for chunk in stream:
                 delta = chunk.choices[0].delta
                 if delta.content:

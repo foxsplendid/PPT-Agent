@@ -18,6 +18,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, status
 
 from backend.api.schemas import AgentFeedbackRequest, AgentFeedbackResponse, GenerateRequest, GenerateResponse
+from backend.runtime.job_timeout import run_with_optional_job_timeout
 from backend.runtime.scheduler import QueueFull, SchedulerDraining, get_scheduler
 from backend.session.manager import session_manager
 from backend.session.progress import describe_exception, payloads_from_progress_event
@@ -93,19 +94,16 @@ async def _run_generation_job(job_id: str, request: Any) -> None:
     timeout = getattr(request, "timeout_seconds", None)
     cleanup_needed = False
     try:
-        if timeout and timeout > 0:
-            await asyncio.wait_for(_iterate_pipeline(job_id, request), timeout=timeout)
-        else:
-            await _iterate_pipeline(job_id, request)
-    except asyncio.TimeoutError:
-        current_job = session_manager.get_job(job_id)
-        if current_job is None:
-            return
-        msg = f"Job exceeded timeout of {timeout}s"
-        error_event = ProgressEvent("error", "error", msg, current_job.progress)
-        for payload, updates in payloads_from_progress_event(job_id, current_job, error_event):
-            session_manager.record_event(job_id, payload, **updates)
-        cleanup_needed = True
+        timed_out = await run_with_optional_job_timeout(_iterate_pipeline(job_id, request), timeout)
+        if timed_out:
+            current_job = session_manager.get_job(job_id)
+            if current_job is None:
+                return
+            msg = f"Job exceeded timeout of {timeout}s"
+            error_event = ProgressEvent("error", "error", msg, current_job.progress)
+            for payload, updates in payloads_from_progress_event(job_id, current_job, error_event):
+                session_manager.record_event(job_id, payload, **updates)
+            cleanup_needed = True
     except asyncio.CancelledError:
         session_manager.mark_job_cancelled(job_id)
         cleanup_needed = True
@@ -399,6 +397,28 @@ async def send_agent_generation_feedback(
             detail="Feedback message is required.",
         )
 
+    # Route only to an Agent session that is still able to consume a message.
+    # The live session object can remain registered while the backend is
+    # validating/finalizing/exporting, after the Agent turn itself has already
+    # ended. In that state returning "injected" is misleading: the user sees
+    # "received" but no Agent will act on it.
+    from backend.orchestrator.agent_session_registry import get as get_live_session
+
+    live_session = get_live_session(job_id)
+    can_inject_live = bool(
+        live_session is not None
+        and getattr(live_session, "can_accept_feedback", False)
+    )
+    if live_session is not None and not can_inject_live and job.status != "complete":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "The Agent has finished its current turn and the deck is being "
+                "finalized/exported. Wait for completion, then send guidance "
+                "as a revision."
+            ),
+        )
+
     from backend.runtime import aensure_dir, awrite_text
 
     target_dir = Path(job.project_dir) / "agent_feedback"
@@ -426,11 +446,7 @@ async def send_agent_generation_feedback(
         },
     )
 
-    # NEW: Route to live session if agent is actively running.
-    from backend.orchestrator.agent_session_registry import get as get_live_session
-    live_session = get_live_session(job_id)
-
-    if live_session is not None:
+    if can_inject_live and live_session is not None:
         was_paused = job.status == "paused"
         runtime = _agent_runtime_from_job(job)
         await live_session.send_message(
@@ -526,9 +542,6 @@ async def interrupt_agent_generation(job_id: str) -> AgentFeedbackResponse:
         )
     if job.status in {"complete", "error", "cancelled"}:
         return AgentFeedbackResponse(job_id=job_id, status=job.status)
-    if job.status == "pausing":
-        return AgentFeedbackResponse(job_id=job_id, status="interrupting")
-
     from backend.orchestrator.agent_session_registry import get as get_live_session
 
     live_session = get_live_session(job_id)
@@ -674,3 +687,4 @@ async def resume_agent_generation(job_id: str) -> AgentFeedbackResponse:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=str(exc),
         ) from exc
+

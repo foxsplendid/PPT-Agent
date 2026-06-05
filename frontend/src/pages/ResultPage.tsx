@@ -65,7 +65,6 @@ export function ResultPage() {
     history,
     startRefine,
     cancelCurrentRun,
-    interruptCurrentAgent,
     connect,
     hydrateAgentHistory,
     activeJobId,
@@ -665,11 +664,7 @@ export function ResultPage() {
             onStop={async () => {
               setCancelLoading(true);
               try {
-                if (resultRunStatus === "paused") {
-                  await cancelCurrentRun();
-                } else {
-                  await interruptCurrentAgent();
-                }
+                await cancelCurrentRun();
               } finally {
                 setCancelLoading(false);
               }

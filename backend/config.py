@@ -142,6 +142,10 @@ class Settings(BaseSettings):
     # Number of parallel equation renders allowed in flight.
     equation_render_concurrency: int = 4
     agent_runtime_ready_timeout: int = 30
+    # Optional hard limit for Agent SDK stream silence. Disabled by default so
+    # long-running Codex/Claude turns are surfaced through idle notices instead
+    # of being stopped as failures. Set >0 to re-enable a hard stop.
+    agent_turn_idle_timeout: int = 0
 
     # ── WebSocket ────────────────────────────────────────────────────────
     ws_subscriber_queue_size: int = 1024
