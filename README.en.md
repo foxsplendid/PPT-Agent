@@ -1,7 +1,7 @@
-# Paper PPT Agent
+# Paper PPT Agent (Research Group Private Use Edition)
 
 <p align="center">
-  <b>Upload a paper, AI generates your presentation</b>
+  <b>Upload an academic paper, AI automatically generates high-fidelity presentations</b>
 </p>
 
 <p align="center">
@@ -19,145 +19,116 @@
 
 ---
 
-A multi-agent pipeline for automatically generating editable PowerPoint presentations from academic papers. Upload a PDF or TeX source, and the AI handles content extraction, structural planning, layout design, and visual quality assurance.
+> [!IMPORTANT]
+> **📢 Research Group Private Use Statement**  
+> This project is an enhanced and customized edition of the open-source multi-agent presentation generator, designed for **private research group use**.  
+> It is derived from the upstream repository [CRui5in/paper-ppt-agent](https://github.com/CRui5in/paper-ppt-agent) (based on the May 2026 commit version `0c5d9f6`), and has been optimized for academic paper parsing and presentation compilation workflows under our custom multi-model relay environments.
 
-![screenshot](./screenshot.png)
+---
 
-## Table of Contents
+## 🛠️ Custom Enhanced Features for Research Group
 
-- [✨ Features](#-features)
-- [📸 Demo](#-demo)
-- [⚙️ Requirements](#️-requirements)
-- [🚀 Quick Start](#-quick-start)
-- [📋 Changelog](#-changelog)
-- [🗺️ Roadmap](#️-roadmap)
-- [🙏 Acknowledgements](#-acknowledgements)
-- [📄 License](#-license)
+Compared to the upstream version, this customized edition integrates the following core technical modules:
+
+1.  **Task Pausing and One-Click Resume (Resume Workflow)**
+    *   Integrates session persistence within the backend pipeline. When a generation task is interrupted by LLM fluctuations or triggers human audit (Hard-Stop), a one-click `Resume` button is provided on the frontend. By requesting `POST /generate/{job_id}/resume`, the task resumes **in-place** without starting over, saving both time and Tokens.
+2.  **High-Fidelity LaTeX Scientific Formula Rendering Pipeline**
+    *   Adds a dedicated [latex_render.py](file:///D:/Code/Jupyter/PPT-Agent/assets/agent_skills/paper-ppt-generate/scripts/latex_render.py) compilation pipeline to the skill generator. It automatically extracts LaTeX formulas and chemical equations from the paper body and renders them into high-fidelity PNG images for embedding in the PPTX pages, resolving math alignment and corruption issues in academic presentations.
+3.  **High-Accuracy PDF Ingestion (MinerU Integration & Fallback)**
+    *   Integrates the [MinerU](https://github.com/opendatalab/MinerU) PDF parsing engine to reconstruct double-column layouts and parse complex tables into clean HTML. Includes a **resilient fallback defense**: if the MinerU API experiences fluctuations or timeouts, it automatically downgrades to local `PyMuPDF` text extraction, ensuring 24/7 service availability.
+4.  **LLM Streaming Output & 524 Gateway Timeout Defense**
+    *   Upgrades the LLM connection layer to support chunk-based Stream outputs, and locks down reasonable timeout bounds. This completely prevents the system from hanging or crashing due to Cloudflare `524` timeouts during long paper processing.
+5.  **Multi-Model Relay & Custom Provider Adaptations**
+    *   Adds support for the OpenAI-Next API aggregator and Xiaomi MiMo provider in the LLM registry. It also corrects `.env` configuration priorities to ensure environment variables are correctly injected into the Vite frontend and Uvicorn backend subprocesses.
 
 ---
 
 ## ✨ Features
 
 | Feature | Description |
-|:--------|:------------|
-| **Multi-Agent Pipeline** | Strategist → Executor → Critic three-stage collaboration for content extraction and layout generation |
-| **Agent Generation Mode** | The workbench supports local Claude Code / Codex runtimes for presentation generation |
-| **Static + Visual QA** | Automatically detects text overflow, element overlap, low contrast, and triggers repair |
-| **Icon Semantic Matching** | RAG semantic search via Gemini Embedding to automatically match icons to slide content |
-| **Feedback Iteration** | Targeted or full regeneration with structural changes (insert, remove, reorder) and version snapshots |
-| **Real-time Observability** | Agent log stream, Token usage aggregation, per-page Critic detail panel |
-| **Multi-language** | Chinese, English, bilingual, and custom language output |
-| **Multi-model** | OpenAI / Anthropic / Gemini / DeepSeek and custom-compatible APIs |
-| **Template Import** | Import PPTX files directly as five-page templates, or use the Claude Code Agent mode for automated analysis, templateization, and preview |
-| **PPT Editor** | Built-in PPTist-based visual editor for editing generated decks and imported templates, including slides, notes, fonts, saving, and re-export |
-| **Deep Research** | External research enrichment (arXiv / Semantic Scholar / Web) with relevance filtering |
+| :--- | :--- |
+| **Multi-Agent Pipeline** | Strategist $\rightarrow$ Executor $\rightarrow$ Critic three-stage collaboration for content extraction and layout generation. |
+| **Task Resume & Recovery** | *[Custom]* One-click resume after task pausing, preventing timeouts and saving Tokens. |
+| **LaTeX Formula Rendering** | *[Custom]* Automatically renders LaTeX math formulas into high-fidelity inline PNGs with clean layouts. |
+| **MinerU PDF Ingestion** | *[Custom]* Reconstructs reading order for double-column papers and converts tables to HTML with PyMuPDF fallback. |
+| **Feedback Iteration** | Target-page or full regeneration with structural changes, version history, and snapshot diffs. |
+| **PPT Web Editor** | Built-in PPTist-based visual editor to adjust text, notes, fonts, and slides before exporting. |
+| **RAG Icon Matching** | Semantic search via Gemini Embedding to automatically match icons to slide content. |
+| **Deep Research** | External research enhancement (arXiv / Semantic Scholar / Web) with automatic relevance filtering. |
 
-## 📸 Demo
-
-<p align="center">
-  <img src="./demo.png" width="700" alt="Demo">
-</p>
+---
 
 ## ⚙️ Requirements
 
-| Dependency | Version |
-|:-----------|:--------|
+| Dependency | Minimum Version |
+| :--- | :--- |
 | 🐍 Python | 3.11+ |
-| 📦 [uv](https://docs.astral.sh/uv/) | latest |
+| 📦 [uv](https://docs. Astral.sh/uv/) | latest |
 | 🟢 Node.js | 18+ |
 
-An API key for at least one model provider: OpenAI / Anthropic / Gemini / DeepSeek or a custom BaseURL-compatible API.
+*   **API Configuration**: Create a `.env` file in the root folder. Supports OpenAI / Anthropic / Gemini / DeepSeek API keys, or custom aggregator base URLs (e.g., OpenAI-Next).
+*   **LaTeX Rendering**: The formula rendering pipeline requires basic local matplotlib installation and related scientific package dependencies.
 
-Optional: workbench Agent generation requires Claude Code or Codex to be installed and configured locally. Template-import Agent mode currently uses Claude Code and requires it to be installed and configured locally.
+---
 
 ## 🚀 Quick Start
 
 ```bash
-# Clone the repository
-git clone https://github.com/CRui5in/paper-ppt-agent.git
-cd paper-ppt-agent
+# Clone the research group customized repository
+git clone https://github.com/foxsplendid/PPT-Agent.git
+cd PPT-Agent
 
-# One-click start (auto-installs deps + launches frontend & backend)
+# One-click start (automatically install dependencies and run services in background)
 # Windows
 .\start-dev.bat
 # Linux
 sh start-dev.sh
 ```
 
-After starting: Frontend [http://127.0.0.1:5173](http://127.0.0.1:5173) · Backend [http://127.0.0.1:8000](http://127.0.0.1:8000)
+*   **Service Endpoints**:
+    *   **Frontend Workbench**: [http://127.0.0.1:5174](http://127.0.0.1:5174)
+    *   **Backend API Service**: [http://127.0.0.1:8100](http://127.0.0.1:8100)
+
+*(Note: Compared to the upstream default configurations, this version uses port `5174` for the frontend and `8100` for the backend to prevent port collisions on local machines.)*
 
 <details>
-<summary>📎 Manual start</summary>
+<summary>📎 Manual Start Instructions</summary>
 
 ```bash
-# Install dependencies
+# Backend installation and startup
 uv sync --locked
-cd frontend && npm install && cd ..
+uv run python -m uvicorn backend.app:app --host 127.0.0.1 --port 8100 --reload --reload-dir backend
 
-# Backend
-uv run python -m uvicorn backend.app:app --host 127.0.0.1 --port 8000 --reload --reload-dir backend
-
-# Frontend
-cd frontend && npm run dev -- --host 127.0.0.1 --port 5173 --strictPort
+# Frontend installation and startup
+cd frontend
+npm install
+npm run dev -- --host 127.0.0.1 --port 5174 --strictPort
 ```
 
 </details>
 
 ---
 
-## 📋 Changelog
+## 📋 Changelog (Research Group Custom Track)
 
-### May 2026
-
-- 🧠 **DeepSeek Provider** — Dedicated DeepSeek provider support with thinking mode configuration
-- 👁️ **Visual QA (Experimental)** — Multimodal LLM renders slides as images for layout and contrast review
-- 🖥️ **Real-time SVG Preview + Log Panel + Critic Detail View** — Live slide preview, Agent logs, and review details during generation
-- 🎯 **Icon RAG Semantic Search** — Gemini Embedding-based semantic search for icon candidates, independently toggleable
-- 🎨 **Template System & Custom Fonts** — Pre-built industry-style templates with custom heading/body font configuration
-- 🧩 **Template Import** — PPTX direct import, five-page template mapping, and Claude Code Agent mode for automated template analysis and templateization
-- 🤖 **Agent Generation Mode** — Integrated Claude Code / Codex presentation generation in the workbench
-- 📝 **PPT Editor** — Visual PPT editor integrated into generated results and template-import workflows, with slide editing, notes, saving, and re-export
-- 🔬 **Deep Research Workflow** — External research enrichment (arXiv / Semantic Scholar / Web) with relevance filtering
-- 🖼️ **Online Image Search** — Search for images online using Tavily / SerpAPI, with AI layout analysis, one-click undo, and download
-- 🎨 **UI Refactor** — Rewrote UI with Konva canvas editor and upgraded SVG-to-PPTX converter
-
-### April 2026
-
-- 🔒 **Static Critic Enhancements** — Decorative-line occlusion detection, low-contrast text detection, multi-line text width estimation fix
-- 📁 **Version History Management** — Automatic snapshot archival per feedback iteration with comparison and rollback
-- 🔎 **Token Log Filtering** — Filter LLM calls by model, stage, page, and job with click-to-expand detail view
-- ⏹️ **Generation Cancellation** — Cancel a running pipeline mid-execution
-- 🤖 **Multi-Agent Pipeline** — Strategist → Executor → Critic three-stage collaboration with automatic SVG repair and feedback iteration
-
----
-
-## 🗺️ Roadmap
-
-- [ ] 🧠 Local model support
+### June 2026 (Research Group Custom Release)
+*   🧠 **One-Click Resume Task Recovery** — Introduced pipeline pause and resume features.
+*   🔬 **LaTeX Formula Rendering Pipeline** — Generates high-fidelity formulas as slide images.
+*   🔍 **MinerU Parser Integration & Fallback** — Added parser support for complex double-column academic papers.
+*   📡 **LLM Streaming Rewrite** — Greatly reduces LLM request gateway timeouts.
+*   ⚙️ **Multi-Model Support & Port Isolation** — Integrated OpenAI-Next aggregator, Xiaomi MiMo, and isolated ports (`5174` frontend / `8100` backend).
 
 ---
 
 ## 🙏 Acknowledgements
 
-- [PPTAgent](https://github.com/icip-cas/PPTAgent) — Pipeline design and Agent architecture reference
-- [ppt-master](https://github.com/hugohe3/ppt-master) — Parts of the engineering approach reference
-- [PPTist](https://github.com/pipipi-pikachu/PPTist) — PPT editor reference and integration foundation. Thanks to the pipipi-pikachu/PPTist project.
+*   [paper-ppt-agent](https://github.com/CRui5in/paper-ppt-agent) — This project is directly derived from this upstream open-source project. Many thanks to the original author for the excellent framework.
+*   [PPTAgent](https://github.com/icip-cas/PPTAgent) — Reference for pipeline design and multi-agent coordination.
+*   [ppt-master](https://github.com/hugohe3/ppt-master) — Reference for the PPTX compiler implementation.
+*   [PPTist](https://github.com/pipipi-pikachu/PPTist) — Integrated editor reference.
 
-## ⭐ Star History
-
-<a href="https://www.star-history.com/?repos=CRui5in%2Fpaper-ppt-agent&type=date&legend=top-left">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=CRui5in/paper-ppt-agent&type=date&theme=dark&legend=top-left" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=CRui5in/paper-ppt-agent&type=date&legend=top-left" />
-    <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=CRui5in/paper-ppt-agent&type=date&legend=top-left" />
-  </picture>
-</a>
+---
 
 ## 📄 License
 
-Released under the [GNU Affero General Public License v3.0 (AGPL-3.0)](./LICENSE).
-
-## 📬 Contact
-
-- 💬 GitHub Issues: [CRui5in/paper-ppt-agent/issues](https://github.com/CRui5in/paper-ppt-agent/issues)
-- 📧 Email: qinruoxuan2018@gmail.com
+This project is licensed under the [GNU Affero General Public License v3.0 (AGPL-3.0)](./LICENSE). Any deployment or commercial usage must comply with the AGPL-3.0 terms.
