@@ -43,6 +43,41 @@ class ProgressEvent:
     data: dict | None = None
 
 
+def build_pptx_export_path(project_dir: Path, job_id: str, mode: str, timestamp: str) -> Path:
+    """
+    Derive the output PPTX file path using the paper file name, Job ID, mode, and iteration version.
+    Format: {Sanitized_Paper_Name}_{Job_ID_Prefix}_{Mode}_v{Version}_{Timestamp}.pptx
+    """
+    from backend.session.manager import session_manager
+    import re
+
+    paper_name = "presentation"
+    version = 1
+
+    job = session_manager.get_job(job_id)
+    if job:
+        if job.feedback_history:
+            version = len(job.feedback_history) + 1
+        session = session_manager.get_session(job.session_id)
+        if session and session.file_name:
+            paper_name = Path(session.file_name).stem
+
+    # Remove invalid characters for Windows paths
+    sanitized = re.sub(r'[\s\\/:*?"<>|]+', '_', paper_name).strip('_')
+    # Limit length to avoid path length issues
+    if len(sanitized) > 30:
+        sanitized = sanitized[:30].rstrip('_')
+    if not sanitized:
+        sanitized = "presentation"
+
+    job_prefix = job_id[:6] if job_id else "unknown"
+    filename = f"{sanitized}_{job_prefix}_{mode}_v{version}_{timestamp}.pptx"
+
+    exports_dir = project_dir / "exports"
+    exports_dir.mkdir(parents=True, exist_ok=True)
+    return exports_dir / filename
+
+
 def _format_enrichment_message(stats) -> str:
     """One-line summary of enrichment results for the progress channel.
 
@@ -627,7 +662,7 @@ async def run_pipeline(
         notes = get_notes(project_dir, svg_files)
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        pptx_path = project_dir / "exports" / f"presentation_{timestamp}.pptx"
+        pptx_path = build_pptx_export_path(project_dir, request.job_id, "provider", timestamp)
 
         async with heavy_stage_slot():
             await aoffload(
@@ -1023,7 +1058,7 @@ async def run_refine_pipeline(
     notes = get_notes(project_dir, svg_files)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    pptx_path = project_dir / "exports" / f"presentation_{timestamp}.pptx"
+    pptx_path = build_pptx_export_path(project_dir, request.job_id, "provider", timestamp)
 
     async with heavy_stage_slot():
         await aoffload(

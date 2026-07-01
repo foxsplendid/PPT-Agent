@@ -1232,8 +1232,9 @@ async def run_agent_pipeline(request: Any):
         yield AgentProgressEvent("export", "started", "Exporting to PowerPoint...", 0.90)
         final_svg_files = get_svg_files(project_dir, source="final")
         notes = get_notes(project_dir, final_svg_files)
+        from backend.orchestrator.pipeline import build_pptx_export_path
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        pptx_path = project_dir / "exports" / f"presentation_{timestamp}.pptx"
+        pptx_path = build_pptx_export_path(project_dir, job_id, "agent", timestamp)
         async with heavy_stage_slot():
             await aoffload(
                 create_pptx,
@@ -1424,8 +1425,9 @@ async def run_agent_feedback_pipeline(
     yield AgentProgressEvent("export", "started", "Exporting updated PowerPoint...", 0.90)
     final_svg_files = get_svg_files(project_dir, source="final")
     notes = get_notes(project_dir, final_svg_files)
+    from backend.orchestrator.pipeline import build_pptx_export_path
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    pptx_path = project_dir / "exports" / f"presentation_agent_feedback_{timestamp}.pptx"
+    pptx_path = build_pptx_export_path(project_dir, job_id, "agent", timestamp)
     async with heavy_stage_slot():
         await aoffload(
             create_pptx,
