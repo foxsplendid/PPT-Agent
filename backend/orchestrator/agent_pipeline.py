@@ -1791,9 +1791,6 @@ def _public_agent_research_config(research_payload: dict[str, Any] | None) -> di
 
 
 def _agent_python_path() -> Path:
-    local_python = PROJECT_ROOT / ".venv" / "Scripts" / "python.exe"
-    if local_python.exists():
-        return local_python.resolve()
     return Path(sys.executable).resolve()
 
 
