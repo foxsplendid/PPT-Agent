@@ -30,20 +30,35 @@ Paper PPT Agent 是一个多智能体工具，可将学术论文（PDF / TeX）�
 | 依赖 | 版本 |
 | :--- | :--- |
 | Python | 3.11–3.12 |
-| [uv](https://docs.astral.sh/uv/) | 最新版 |
-| Node.js / npm | 18+ |
+| [uv](https://docs.astral.sh/uv/) | 0.11.16 |
+| Node.js / npm | >=20.19 / 11.6.2 |
 
 后端使用 `uv` 管理依赖（见 `pyproject.toml` / `uv.lock`），前端使用 Vite（见 `frontend/package.json`）。
 
 ```bash
 git clone https://github.com/foxsplendid/PPT-Agent.git
 cd PPT-Agent
+```
 
-# 安装后端依赖（锁定版本）
+请根据当前 shell 二选一执行后端同步命令。
+
+Windows PowerShell：
+
+```powershell
+$env:UV_PROJECT_ENVIRONMENT = ".venv-uv"
 uv sync --locked
+```
 
+Linux / macOS：
+
+```bash
+export UV_PROJECT_ENVIRONMENT=.venv-uv
+uv sync --locked
+```
+
+```bash
 # 安装前端依赖
-cd frontend && npm install && cd ..
+cd frontend && npm ci && cd ..
 ```
 
 配置：将 `.env.example` 复制为 `.env`，并至少填入一个服务商密钥。支持的密钥包括 `OPENAI_API_KEY`、`ANTHROPIC_API_KEY`、`GEMINI_API_KEY`、`DEEPSEEK_API_KEY`，以及 `XIAOMI_API_KEY` / `XIAOMI_BASE_URL`。可选项：`MINERU_API_KEY` / `MINERU_API_URL` 用于高保真 PDF 解析，`IMAGE_BACKEND` 用于图像生成。`DEFAULT_LLM_PROVIDER` 与 `DEFAULT_LLM_MODEL` 用于指定默认模型。
@@ -64,9 +79,11 @@ sh start-dev.sh
 
 手动启动：
 
+执行手动 `uv` 命令前，请先按上文为当前 shell 设置 `UV_PROJECT_ENVIRONMENT`。
+
 ```bash
 # 后端（FastAPI 入口为 backend/app.py -> app）
-uv run python -m uvicorn backend.app:app --host 127.0.0.1 --port 8000 --reload --reload-dir backend
+uv run --locked python -m uvicorn backend.app:app --host 127.0.0.1 --port 8000 --reload --reload-dir backend
 
 # 前端
 cd frontend
@@ -76,7 +93,7 @@ npm run dev
 运行测试：
 
 ```bash
-uv run pytest   # 配置见 pytest.ini，测试位于 tests/
+uv run --locked pytest   # 配置见 pytest.ini，测试位于 tests/
 ```
 
 ## 项目结构

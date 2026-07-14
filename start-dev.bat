@@ -5,6 +5,7 @@ set "ROOT=%~dp0"
 if "%ROOT:~-1%"=="\" set "ROOT=%ROOT:~0,-1%"
 set "FRONTEND_DIR=%ROOT%\frontend"
 set "FRONTEND_URL=http://127.0.0.1:5173"
+set "UV_PROJECT_ENVIRONMENT=%ROOT%\.venv-uv"
 
 where uv >nul 2>nul
 if errorlevel 1 (
@@ -22,7 +23,7 @@ if errorlevel 1 (
 
 echo ==> Syncing backend dependencies with uv
 pushd "%ROOT%"
-call uv sync
+call uv sync --locked
 if errorlevel 1 (
   popd
   exit /b 1
@@ -32,7 +33,7 @@ popd
 if not exist "%FRONTEND_DIR%\node_modules" (
   echo ==> Installing frontend dependencies
   pushd "%FRONTEND_DIR%"
-  call npm install
+  call npm ci
   if errorlevel 1 (
     popd
     exit /b 1
@@ -43,6 +44,6 @@ if not exist "%FRONTEND_DIR%\node_modules" (
 echo ==> Starting Paper PPT Agent in this window
 cd /d "%ROOT%"
 set PYTHONUNBUFFERED=1
-call uv run python -m backend.dev_launcher
+call uv run --locked python -m backend.dev_launcher
 
 endlocal

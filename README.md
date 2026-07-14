@@ -30,20 +30,35 @@ Requirements:
 | Dependency | Version |
 | :--- | :--- |
 | Python | 3.11–3.12 |
-| [uv](https://docs.astral.sh/uv/) | latest |
-| Node.js / npm | 18+ |
+| [uv](https://docs.astral.sh/uv/) | 0.11.16 |
+| Node.js / npm | >=20.19 / 11.6.2 |
 
 The backend is managed with `uv` (see `pyproject.toml` / `uv.lock`); the frontend uses Vite (see `frontend/package.json`).
 
 ```bash
 git clone https://github.com/foxsplendid/PPT-Agent.git
 cd PPT-Agent
+```
 
-# Backend dependencies (locked)
+Choose one backend sync command for the current shell.
+
+Windows PowerShell:
+
+```powershell
+$env:UV_PROJECT_ENVIRONMENT = ".venv-uv"
 uv sync --locked
+```
 
+Linux / macOS:
+
+```bash
+export UV_PROJECT_ENVIRONMENT=.venv-uv
+uv sync --locked
+```
+
+```bash
 # Frontend dependencies
-cd frontend && npm install && cd ..
+cd frontend && npm ci && cd ..
 ```
 
 Configuration: copy `.env.example` to `.env` and fill in at least one provider key. Supported keys include `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `DEEPSEEK_API_KEY`, and `XIAOMI_API_KEY` / `XIAOMI_BASE_URL`. Optional: `MINERU_API_KEY` / `MINERU_API_URL` for high-fidelity PDF parsing, and `IMAGE_BACKEND` for image generation. `DEFAULT_LLM_PROVIDER` and `DEFAULT_LLM_MODEL` select the default model.
@@ -64,9 +79,11 @@ Both scripts run `python -m backend.dev_launcher`, which starts the Vite fronten
 
 Manual start:
 
+Set `UV_PROJECT_ENVIRONMENT` for the current shell as shown above before running manual `uv` commands.
+
 ```bash
 # Backend (FastAPI app entrypoint is backend/app.py -> app)
-uv run python -m uvicorn backend.app:app --host 127.0.0.1 --port 8000 --reload --reload-dir backend
+uv run --locked python -m uvicorn backend.app:app --host 127.0.0.1 --port 8000 --reload --reload-dir backend
 
 # Frontend
 cd frontend
@@ -76,7 +93,7 @@ npm run dev
 Run tests:
 
 ```bash
-uv run pytest   # config in pytest.ini, tests under tests/
+uv run --locked pytest   # config in pytest.ini, tests under tests/
 ```
 
 ## Project Structure

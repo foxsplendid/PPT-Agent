@@ -10,11 +10,11 @@ build/
 
 # Virtual environment
 .venv/
+.venv-uv/
 venv/
 env/
 
 # uv
-.python-version
 .uv-cache/
 
 # Environment variables
